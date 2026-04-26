@@ -5,230 +5,286 @@ import fitz
 import pandas as pd
 import uuid
 import os
+import re
 
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
 app = FastAPI()
 
-# ---------------- KNOWLEDGE BASE ----------------
 WORK_KNOWLEDGE_BASE = {
     "demolition": {
-        "keywords": ["demolition", "dismantling", "dismentalling", "breaking", "removal", "dispose", "disposal"],
+        "keywords": ["demolition", "dismantling", "dismantle", "dismentalling", "breaking", "removal", "remove", "dispose", "disposal", "scrap"],
         "work": "Demolition / Dismantling Work",
-        "materials": "No permanent material required; debris handling/consumables only",
-        "method": "Site inspection, utility isolation, controlled breaking/dismantling, stacking of serviceable material, disposal of unserviceable material",
+        "materials": "No permanent material required; debris handling and consumables only",
+        "method": "Site inspection, utility isolation, controlled dismantling/breaking, stacking of serviceable material and disposal of unserviceable material",
         "tools": "Breaker, hammer, chisel, cutter, wheelbarrow, safety barricade, PPE",
         "labour": "Demolition labour + supervisor",
-        "forbidden": ["cement", "sand", "aggregate", "steel reinforcement"]
     },
     "concrete": {
-        "keywords": ["concrete", "rcc", "pcc", "m20", "m25", "m30", "cement concrete"],
+        "keywords": ["concrete", "rcc", "pcc", "m10", "m15", "m20", "m25", "m30", "cement concrete", "reinforced cement concrete"],
         "work": "Concrete Work",
         "materials": "Cement, sand, aggregate, water, admixture if specified, steel if RCC",
         "method": "Batching, mixing, placing, compaction, finishing and curing as per specification",
         "tools": "Concrete mixer, vibrator, cube mould, trowel, curing arrangement",
         "labour": "Mason + labour + supervisor",
-        "forbidden": []
     },
     "brickwork": {
-        "keywords": ["brick work", "brickwork", "masonry", "stone masonry", "block work"],
+        "keywords": ["brick work", "brickwork", "masonry", "stone masonry", "block work", "aac block", "fly ash brick"],
         "work": "Masonry Work",
-        "materials": "Bricks/blocks/stone, cement mortar, sand, water",
+        "materials": "Bricks/blocks/stone, cement mortar, sand and water",
         "method": "Line-level setting, mortar preparation, laying, joint filling and curing",
         "tools": "Trowel, line dori, level tube, plumb bob, scaffolding",
         "labour": "Mason + helper",
-        "forbidden": []
     },
     "excavation": {
-        "keywords": ["excavation", "earthwork", "digging", "trench", "pit excavation"],
-        "work": "Excavation Work",
+        "keywords": ["excavation", "earthwork", "earth work", "digging", "trench", "pit excavation", "soil", "backfilling", "back filling"],
+        "work": "Excavation / Earthwork",
         "materials": "No permanent material; soil disposal/backfilling as applicable",
         "method": "Marking, excavation manually or by machine, dressing, dewatering if required, disposal/backfilling",
         "tools": "JCB, spade, pickaxe, dumper, measuring tape",
         "labour": "Excavator operator + labour + supervisor",
-        "forbidden": ["cement", "sand", "aggregate"]
     },
     "cable_laying": {
-        "keywords": ["cable", "cable laying", "xlpe", "lt cable", "ht cable", "cable pulling"],
+        "keywords": ["cable", "cable laying", "xlpe", "lt cable", "ht cable", "cable pulling", "armoured cable", "unarmoured cable"],
         "work": "Cable Laying Work",
         "materials": "Cable, lugs, glands, saddles, tags, warning tape if specified",
         "method": "Route checking, drum handling, rollers placement, cable pulling, dressing, glanding, termination and testing",
         "tools": "Cable roller, drum jack, winch, crimping tool, megger, PPE",
         "labour": "Cable gang + electrician + supervisor",
-        "forbidden": ["cement", "sand", "aggregate"]
     },
     "earthing": {
-        "keywords": ["earthing", "earth pit", "earth electrode", "gi strip", "copper strip"],
+        "keywords": ["earthing", "earth pit", "earth electrode", "gi strip", "copper strip", "earth mat", "chemical earthing"],
         "work": "Earthing Work",
         "materials": "Earth electrode, GI/Cu strip, earth compound/charcoal/salt as specified, chamber cover",
         "method": "Pit excavation, electrode installation, strip connection, backfilling, watering and earth resistance testing",
         "tools": "Earth tester, spade, welding/drilling tools, multimeter",
         "labour": "Electrician + labour",
-        "forbidden": []
     },
     "panel": {
-        "keywords": ["panel", "switchgear", "mccb", "acb", "lt panel", "control panel"],
+        "keywords": ["panel", "switchgear", "mccb", "acb", "lt panel", "control panel", "db", "distribution board", "feeder pillar"],
         "work": "Electrical Panel Work",
         "materials": "Panel, breakers, busbar, control wiring, lugs, glands, ferrules",
         "method": "Panel positioning, fixing, cable termination, control wiring, testing and commissioning",
         "tools": "Crimping tool, multimeter, torque wrench, insulation tester",
         "labour": "Electrician + technician + supervisor",
-        "forbidden": ["cement", "sand", "aggregate"]
     },
     "scada": {
-        "keywords": ["scada", "rtu", "plc", "hmi", "remote monitoring", "remote monitor", "automation"],
+        "keywords": ["scada", "rtu", "plc", "hmi", "remote monitoring", "remote monitor", "automation", "data logger", "communication"],
         "work": "SCADA / Remote Monitoring Work",
         "materials": "PLC/RTU, HMI, sensors, communication module, control cables, panel accessories",
         "method": "Panel wiring, device installation, communication setup, configuration, testing and commissioning",
         "tools": "Laptop, multimeter, crimping tool, communication tester",
         "labour": "Automation engineer + technician",
-        "forbidden": ["cement", "sand", "aggregate"]
     },
     "painting": {
-        "keywords": ["painting", "paint", "primer", "coating"],
+        "keywords": ["painting", "paint", "primer", "coating", "enamel", "epoxy", "white wash", "distemper"],
         "work": "Painting / Coating Work",
         "materials": "Primer, paint/coating, thinner, putty if specified",
         "method": "Surface preparation, primer application, paint/coating application and finishing",
         "tools": "Brush, roller, spray gun, scraper, sandpaper",
         "labour": "Painter + helper",
-        "forbidden": []
+    },
+    "plaster": {
+        "keywords": ["plaster", "plastering", "cement plaster", "12mm plaster", "15mm plaster", "20mm plaster"],
+        "work": "Plaster Work",
+        "materials": "Cement, sand, water and curing arrangement",
+        "method": "Surface preparation, mortar mixing, plaster application, levelling, finishing and curing",
+        "tools": "Trowel, level, wooden float, scaffolding",
+        "labour": "Mason + helper",
+    },
+    "flooring": {
+        "keywords": ["flooring", "tile", "tiles", "vitrified", "ceramic", "granite", "marble", "paver block"],
+        "work": "Flooring / Tiling Work",
+        "materials": "Tiles/stone/paver, adhesive or mortar, grout, cement, sand and water",
+        "method": "Surface preparation, line-level marking, laying, joint filling, cleaning and curing",
+        "tools": "Tile cutter, trowel, level, spacer, rubber mallet",
+        "labour": "Tile mason + helper",
+    },
+    "fabrication": {
+        "keywords": ["fabrication", "structural steel", "ms steel", "steel structure", "welding", "ms angle", "ms channel", "truss"],
+        "work": "Fabrication Work",
+        "materials": "MS steel sections, welding electrodes, bolts, primer/paint as specified",
+        "method": "Cutting, fitting, welding/bolting, alignment, finishing and painting",
+        "tools": "Welding machine, grinder, gas cutter, drill machine, measuring tools",
+        "labour": "Fabricator + welder + helper",
+    },
+    "solar": {
+        "keywords": ["solar", "module", "pv module", "inverter", "string", "solar plant", "mms", "dc cable", "ac cable"],
+        "work": "Solar Plant Work",
+        "materials": "Solar modules, MMS, inverter, cables, connectors, earthing and accessories as specified",
+        "method": "Installation, alignment, cabling, termination, testing and commissioning",
+        "tools": "Torque wrench, multimeter, megger, MC4 crimper, PPE",
+        "labour": "Solar technician + electrician + supervisor",
     }
 }
 
-# ---------------- PDF TEXT EXTRACTION ----------------
+
 def extract_text_from_pdf(file):
     doc = fitz.open(stream=file, filetype="pdf")
-    all_data = []
+    all_lines = []
 
     for page in doc:
-        blocks = page.get_text("blocks")
-        for b in blocks:
-            text = b[4].strip()
-            if text:
-                all_data.append(text)
+        text = page.get_text("text")
+        for line in text.splitlines():
+            line = line.strip()
+            if line:
+                all_lines.append(line)
 
-    return all_data
+    return all_lines
 
-# ---------------- CLEAN ----------------
+
 def clean_lines(lines):
-    return [line.replace("\n", " ").strip() for line in lines if line.strip()]
+    cleaned = []
+    for line in lines:
+        line = re.sub(r"\s+", " ", line.replace("\n", " ")).strip()
+        if line:
+            cleaned.append(line)
+    return cleaned
 
-# ---------------- MERGE BROKEN LINES ----------------
+
 def merge_lines(lines):
     merged = []
     buffer = ""
 
+    item_start = re.compile(r"^\s*(\d+|[0-9]+\.[0-9]+)\s+")
+
     for line in lines:
-        line = line.strip()
-        if line and line[0].isdigit():
+        if item_start.match(line):
             if buffer:
                 merged.append(buffer.strip())
             buffer = line
         else:
-            buffer += " " + line
+            if buffer:
+                buffer += " " + line
+            else:
+                buffer = line
 
     if buffer:
         merged.append(buffer.strip())
 
     return merged
 
-# ---------------- BOQ EXTRACTION ----------------
+
+def is_number(value):
+    value = str(value).replace(",", "").replace("₹", "").strip()
+    return bool(re.fullmatch(r"\d+(\.\d+)?", value))
+
+
+def normalize_unit(unit):
+    u = str(unit).strip().lower()
+    unit_map = {
+        "cum": "Cum", "cu.m": "Cum", "cu.m.": "Cum", "m3": "Cum", "m³": "Cum", "cmt": "Cum",
+        "sqm": "Sqm", "sq.m": "Sqm", "sq.m.": "Sqm", "m2": "Sqm", "m²": "Sqm", "smt": "Sqm",
+        "rm": "Rmt", "rmt": "Rmt", "m": "Mtr", "meter": "Mtr", "metre": "Mtr", "mtr": "Mtr",
+        "nos": "Nos", "no": "Nos", "each": "Nos", "set": "Set", "job": "Job",
+        "kg": "Kg", "mt": "MT", "ton": "MT", "ltr": "Ltr", "litre": "Ltr"
+    }
+    return unit_map.get(u, unit)
+
+
 def extract_boq(lines):
     boq = []
+    known_units = r"(cum|cu\.m\.?|m3|m³|cmt|sqm|sq\.m\.?|m2|m²|smt|rmt|rm|mtr|meter|metre|m|nos|no|each|set|job|kg|mt|ton|ltr|litre)"
+
+    pattern = re.compile(
+        rf"^\s*(?P<item>\d+(\.\d+)*)\s+"
+        rf"(?P<desc>.*?)\s+"
+        rf"(?P<qty>\d+(\.\d+)?)\s*"
+        rf"(?P<unit>{known_units})\s+"
+        rf"(?P<rate>\d+(\.\d+)?)",
+        re.IGNORECASE
+    )
 
     for line in lines:
-        parts = line.split()
+        line_clean = line.replace(",", "")
+        match = pattern.search(line_clean)
 
-        if len(parts) < 5 or not parts[0].isdigit():
-            continue
-
-        try:
-            item_no = parts[0]
-
-            numbers = []
-            for p in parts:
-                clean_p = p.replace(",", "").replace("₹", "")
-                if clean_p.replace(".", "", 1).isdigit():
-                    numbers.append(clean_p)
-
-            if len(numbers) < 2:
-                continue
-
-            qty = numbers[-2]
-            rate = numbers[-1]
-            unit = parts[-1]
-
-            description = " ".join(parts[1:-3])
-
+        if match:
             boq.append({
-                "Item No": item_no,
-                "Description": description,
-                "Quantity": qty,
-                "Rate": rate,
-                "Unit": unit,
+                "Item No": match.group("item"),
+                "Description": match.group("desc").strip(),
+                "Quantity": match.group("qty"),
+                "Rate": match.group("rate"),
+                "Unit": normalize_unit(match.group("unit")),
                 "Source Line": line
             })
-        except:
             continue
+
+        parts = line_clean.split()
+        if len(parts) < 6:
+            continue
+
+        if not re.match(r"^\d+(\.\d+)*$", parts[0]):
+            continue
+
+        unit_index = None
+        for i, p in enumerate(parts):
+            if re.fullmatch(known_units, p.lower()):
+                unit_index = i
+                break
+
+        if unit_index and unit_index >= 2:
+            qty_index = unit_index - 1
+            rate_index = unit_index + 1
+
+            if rate_index < len(parts) and is_number(parts[qty_index]) and is_number(parts[rate_index]):
+                boq.append({
+                    "Item No": parts[0],
+                    "Description": " ".join(parts[1:qty_index]).strip(),
+                    "Quantity": parts[qty_index],
+                    "Rate": parts[rate_index],
+                    "Unit": normalize_unit(parts[unit_index]),
+                    "Source Line": line
+                })
 
     return boq
 
-# ---------------- SMART ANALYSIS ----------------
+
 def analyze_work(description, unit):
     desc = description.lower()
     unit_l = str(unit).lower()
 
-    matched_results = []
+    best_score = 0
+    best_data = None
+    matched_keywords = []
 
-    for key, data in WORK_KNOWLEDGE_BASE.items():
+    for _, data in WORK_KNOWLEDGE_BASE.items():
         score = 0
-        matched_keywords = []
+        found = []
 
         for kw in data["keywords"]:
             if kw in desc:
-                score += 1
-                matched_keywords.append(kw)
+                score += 3
+                found.append(kw)
 
-        if key == "concrete" and unit_l in ["cum", "cmt", "m3", "m³"]:
-            score += 1
+        if unit_l in ["cum"] and any(x in desc for x in ["concrete", "excavation", "earthwork", "pcc", "rcc"]):
+            score += 2
 
-        if key == "cable_laying" and unit_l in ["m", "meter", "metre", "rmt"]:
-            score += 1
+        if unit_l in ["sqm"] and any(x in desc for x in ["painting", "plaster", "flooring", "tile"]):
+            score += 2
 
-        if score > 0:
-            matched_results.append((score, key, data, matched_keywords))
+        if unit_l in ["mtr", "rmt"] and any(x in desc for x in ["cable", "pipe", "strip"]):
+            score += 2
 
-    if not matched_results:
+        if score > best_score:
+            best_score = score
+            best_data = data
+            matched_keywords = found
+
+    if best_data is None:
         return {
-            "Work": "Unknown / Review Required",
-            "Material": "-",
-            "Method": "-",
-            "Tools": "-",
-            "Labour": "-",
-            "Status": "⚠ Review Required",
-            "Review Reason": "No matching work type found in knowledge base",
+            "Work": "General Tender Item",
+            "Material": "As per item description / tender specification",
+            "Method": "Execute work as per tender specification, drawing and site instruction",
+            "Tools": "Standard tools, tackles and safety equipment as required",
+            "Labour": "Skilled/semi-skilled labour + supervisor as required",
+            "Status": "OK",
+            "Review Reason": "-",
             "Confidence": "Low"
         }
 
-    matched_results.sort(reverse=True, key=lambda x: x[0])
-    best_score, best_key, best_data, matched_keywords = matched_results[0]
-
-    confidence = "High" if best_score >= 2 else "Medium"
-
-    status = "OK"
-    review_reason = "-"
-
-    material_lower = best_data["materials"].lower()
-    for bad in best_data["forbidden"]:
-        if bad in material_lower:
-            status = "⚠ Review Required"
-            review_reason = f"Forbidden material detected for {best_data['work']}: {bad}"
-
-    if best_key == "demolition":
-        if "m20" in desc or "m25" in desc or "rcc" in desc:
-            status = "⚠ Review Required"
-            review_reason = "Demolition item contains concrete/RCC terms; verify existing breaking or new concrete work"
+    confidence = "High" if best_score >= 5 else "Medium"
 
     return {
         "Work": best_data["work"],
@@ -236,124 +292,90 @@ def analyze_work(description, unit):
         "Method": best_data["method"],
         "Tools": best_data["tools"],
         "Labour": best_data["labour"],
-        "Status": status,
-        "Review Reason": review_reason,
+        "Status": "OK",
+        "Review Reason": "-",
         "Confidence": confidence
     }
 
-# ---------------- RATE LOGIC ----------------
-def get_rate(work_type, tender_rate):
+
+def get_rate(tender_rate):
     try:
-        return float(tender_rate)
+        return float(str(tender_rate).replace(",", "").replace("₹", ""))
     except:
         return 0
 
-# ---------------- EXCEL FORMATTING ----------------
+
 def format_excel(file_name):
     wb = load_workbook(file_name)
     ws = wb.active
-
     ws.title = "Vtenders Output"
 
-    thin_border = Border(
-        left=Side(style="thin"),
-        right=Side(style="thin"),
-        top=Side(style="thin"),
-        bottom=Side(style="thin")
-    )
+    thin_border = Border(left=Side(style="thin"), right=Side(style="thin"), top=Side(style="thin"), bottom=Side(style="thin"))
 
-    header_fill = PatternFill(start_color="D9EAF7", end_color="D9EAF7", fill_type="solid")
+    header_fill = PatternFill(start_color="0B3D91", end_color="0B3D91", fill_type="solid")
     ok_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-    review_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
     medium_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    low_fill = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
 
-    # Header format
     for cell in ws[1]:
-        cell.font = Font(bold=True)
+        cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = thin_border
 
-    # Data format
     for row in ws.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = Alignment(vertical="top", wrap_text=True)
             cell.border = thin_border
 
-    # Freeze header
     ws.freeze_panes = "A2"
 
-    # Find Status and Confidence columns
-    status_col = None
     confidence_col = None
+    status_col = None
 
     for cell in ws[1]:
-        if cell.value == "Status":
-            status_col = cell.column
         if cell.value == "Confidence":
             confidence_col = cell.column
+        if cell.value == "Status":
+            status_col = cell.column
 
-    # Color status/confidence
     for row in range(2, ws.max_row + 1):
-        if status_col:
-            status_cell = ws.cell(row=row, column=status_col)
-            value = str(status_cell.value)
-
-            if value == "OK":
-                status_cell.fill = ok_fill
-                status_cell.font = Font(bold=True, color="006100")
-            elif "Review" in value:
-                status_cell.fill = review_fill
-                status_cell.font = Font(bold=True, color="9C0006")
-
         if confidence_col:
-            confidence_cell = ws.cell(row=row, column=confidence_col)
-            value = str(confidence_cell.value)
+            c = ws.cell(row=row, column=confidence_col)
+            if c.value == "High":
+                c.fill = ok_fill
+            elif c.value == "Medium":
+                c.fill = medium_fill
+            else:
+                c.fill = low_fill
 
-            if value == "High":
-                confidence_cell.fill = ok_fill
-            elif value == "Medium":
-                confidence_cell.fill = medium_fill
-            elif value == "Low":
-                confidence_cell.fill = review_fill
+        if status_col:
+            s = ws.cell(row=row, column=status_col)
+            s.fill = ok_fill
+            s.font = Font(bold=True, color="006100")
 
-    # Column widths
     widths = {
-        "A": 10,   # Item No
-        "B": 28,   # Work
-        "C": 55,   # Description
-        "D": 45,   # Material
-        "E": 12,   # Quantity
-        "F": 12,   # Unit
-        "G": 55,   # Method
-        "H": 45,   # Tools
-        "I": 35,   # Labour
-        "J": 14,   # Rate
-        "K": 16,   # Amount
-        "L": 14,   # Confidence
-        "M": 20,   # Status
-        "N": 55,   # Review Reason
-        "O": 70    # Source Line
+        "A": 10, "B": 30, "C": 65, "D": 48, "E": 12, "F": 12,
+        "G": 60, "H": 45, "I": 35, "J": 14, "K": 16,
+        "L": 14, "M": 16, "N": 45, "O": 75
     }
 
     for col, width in widths.items():
         ws.column_dimensions[col].width = width
 
-    # Row height
     for row in range(1, ws.max_row + 1):
-        ws.row_dimensions[row].height = 45
+        ws.row_dimensions[row].height = 42
 
     wb.save(file_name)
 
-# ---------------- HOME UI ----------------
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
     <html>
     <body style="font-family: Arial; padding: 30px;">
         <h2>Vtenders - Tender File Analyzer</h2>
-        <p>Upload multiple tender PDF files. System will extract BOQ and generate formatted Excel output.</p>
-
+        <p>Upload tender PDF files. System will extract BOQ and generate Excel output.</p>
         <form action="/upload/" method="post" enctype="multipart/form-data">
             <input type="file" name="files" multiple required>
             <br><br>
@@ -363,7 +385,7 @@ def home():
     </html>
     """
 
-# ---------------- MAIN PROCESS ----------------
+
 @app.post("/upload/")
 async def upload_files(files: List[UploadFile] = File(...)):
     all_items = []
@@ -384,7 +406,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
             except:
                 qty = 0
 
-            rate = get_rate(analysis["Work"], item["Rate"])
+            rate = get_rate(item["Rate"])
             amount = qty * rate
 
             all_items.append({
@@ -408,8 +430,8 @@ async def upload_files(files: List[UploadFile] = File(...)):
     if not all_items:
         all_items.append({
             "Item No": "-",
-            "Work": "No Data Found",
-            "Description": "PDF format not supported or BOQ table not detected",
+            "Work": "No BOQ Data Found",
+            "Description": "BOQ table not detected. PDF may be scanned/image based or layout is unsupported.",
             "Material": "-",
             "Quantity": "-",
             "Unit": "-",
@@ -419,7 +441,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
             "Rate": "-",
             "Amount": "-",
             "Confidence": "Low",
-            "Status": "⚠ Review Required",
+            "Status": "Review",
             "Review Reason": "No BOQ rows detected",
             "Source Line": "-"
         })
@@ -437,7 +459,7 @@ async def upload_files(files: List[UploadFile] = File(...)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# ---------------- DOWNLOAD ----------------
+
 @app.get("/download/{file_name}")
 def download_file(file_name: str):
     file_path = os.path.join(os.getcwd(), file_name)

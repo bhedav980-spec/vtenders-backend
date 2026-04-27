@@ -1,6 +1,8 @@
 fastapi
 uvicorn
+python-multipart
 pandas
 openpyxl
 PyMuPDF
-python-multipart
+openai
+python-dotenv
